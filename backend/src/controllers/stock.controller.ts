@@ -10,7 +10,7 @@ export const getHierarchy = asyncHandler(async (req: Request, res: Response) => 
   res.json(hierarchy);
 });
 
-export const getSummary = asyncHandler(async (req: Request, res: Response) => {
+export const getSummary = asyncHandler(async (_req: Request, res: Response) => {
   const summary = await getDashboardSummary();
   res.json(summary);
 });
