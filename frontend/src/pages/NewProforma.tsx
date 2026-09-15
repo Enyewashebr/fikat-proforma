@@ -27,7 +27,8 @@ export default function NewProforma() {
   const [productTypeId, setProductTypeId] = useState("");
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
-  const [thickness, setThickness] = useState("0.03");
+  // const [thickness, setThickness] = useState("0.03");
+  const [thickness] = useState("0.03");
   const [quantity, setQuantity] = useState("1");
   const [pricePerM2, setPricePerM2] = useState("");
   const [priceWasAutoFilled, setPriceWasAutoFilled] = useState(false);

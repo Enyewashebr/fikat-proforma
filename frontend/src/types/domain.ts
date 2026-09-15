@@ -39,7 +39,7 @@ export interface Material {
   category: MaterialCategory;
   name: string;
   code?: string | null;
-  productTypes: { id: string; name: string }[];
+  productTypes: ProductType[];
   stockSizes: StockSize[];
 }
 
