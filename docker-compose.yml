@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fikat
+      POSTGRES_USER: fikat
+      POSTGRES_PASSWORD: fikat
+    ports:
+      - "5432:5432"
+    volumes:
+      - fikat_db_data:/var/lib/postgresql/data
+
+volumes:
+  fikat_db_data:

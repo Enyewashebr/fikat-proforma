@@ -1,0 +1,303 @@
+// Fikat Proforma — database schema
+// One authoritative model per domain concept (see MASTER PROMPT rule #43:
+// there must be ONE definition of Material / ProductType / StockSize /
+// StockCombination / ProformaItem — this file is that source of truth,
+// and backend/src/types/domain.ts mirrors it for the API layer).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & auth
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  MANAGER
+  SALES
+  STOREKEEPER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(SALES)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  proformasCreated  Proforma[]        @relation("ProformaCreatedBy")
+  stockTransactions StockTransaction[]
+  auditLogs         AuditLog[]
+}
+
+// ---------------------------------------------------------------------------
+// Customers
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  taxId     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  proformas Proforma[]
+}
+
+// ---------------------------------------------------------------------------
+// Materials: Granite (material -> product type -> stock sizes)
+//            Ceramic (material -> stock sizes, no product type)
+// ---------------------------------------------------------------------------
+
+enum MaterialCategory {
+  GRANITE
+  CERAMIC
+}
+
+model Material {
+  id        String           @id @default(cuid())
+  category  MaterialCategory
+  name      String // e.g. "603", "Golden White", "Satin Grey"
+  code      String? // internal SKU / short code
+  active    Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  // Only used for GRANITE. Ceramic materials attach StockSizes directly.
+  productTypes  ProductType[]
+  stockSizes    StockSize[] // used directly when category == CERAMIC
+  proformaItems ProformaItem[]
+
+  @@unique([category, name])
+}
+
+// Granite-only: Thread & Riser, Window Sill, Doorsill, Landing, Skirting, Kitchen Top...
+model ProductType {
+  id         String   @id @default(cuid())
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  name       String
+  createdAt  DateTime @default(now())
+
+  stockSizes StockSize[]
+
+  @@unique([materialId, name])
+}
+
+// A physical stock size: dimensions + current quantity/status.
+// For granite this hangs off a ProductType; for ceramic it hangs off the
+// Material directly (productTypeId is null).
+model StockSize {
+  id            String       @id @default(cuid())
+  materialId    String
+  material      Material     @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  productTypeId String?
+  productType   ProductType? @relation(fields: [productTypeId], references: [id], onDelete: Cascade)
+
+  lengthCm  Float
+  widthCm   Float
+  thickness Float
+  unit      String @default("pcs") // "pcs" | "m2"
+
+  // Some applications (Thread & Riser) are sold as a matched SET of two
+  // physically different pieces at the same length: e.g. a 120cm run is a
+  // 120x34x3 thread PLUS a 120x15x2 riser, always stocked/sold together.
+  // When set, these describe the second piece of the pair; widthCm/thickness
+  // above describe the first (thread) piece. Null for every other
+  // application/ceramic product, which are a single physical dimension.
+  // NOTE: the stock optimizer currently only optimizes against the primary
+  // (thread) dimension — it does not yet separately verify/cut the riser
+  // piece. Documented here rather than silently ignored; revisit if the
+  // business needs riser-specific cutting logic.
+  secondaryWidthCm   Float?
+  secondaryThickness Float?
+
+  quantityAvailable Int @default(0)
+  quantityReserved  Int @default(0) // reserved by DRAFT/REVIEW proformas, not yet deducted
+
+  lowStockThreshold Int @default(5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockTransactions      StockTransaction[]
+  proformaStockAllocations ProformaStockAllocation[]
+
+  @@index([materialId, productTypeId])
+}
+
+// Every quantity change is a transaction — never a bare field overwrite.
+// This is the audit trail the spec calls "Stock Transactions" (#25).
+enum StockTransactionType {
+  RECEIVE
+  ADJUSTMENT
+  DAMAGE
+  RETURN
+  PROFORMA_ALLOCATION
+  PROFORMA_RELEASE
+}
+
+model StockTransaction {
+  id          String               @id @default(cuid())
+  stockSizeId String
+  stockSize   StockSize            @relation(fields: [stockSizeId], references: [id])
+  type        StockTransactionType
+  quantityDelta Int // positive = added to available, negative = removed
+  previousQuantity Int
+  newQuantity      Int
+  reason      String?
+  referenceProformaId String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Pricing & settings
+// ---------------------------------------------------------------------------
+
+// Price per m² for a given material (+ optional product type). Kept out of
+// the frontend entirely — see rule #18 "prices should be stored in the database".
+model Price {
+  id            String   @id @default(cuid())
+  materialId    String
+  productTypeId String?
+  pricePerM2    Float
+  currency      String   @default("ETB")
+  effectiveFrom DateTime @default(now())
+  active        Boolean  @default(true)
+
+  @@index([materialId, productTypeId])
+}
+
+model Setting {
+  key   String @id
+  value String
+  // e.g. { key: "vatRate", value: "0.15" }
+  //      { key: "currency", value: "ETB" }
+  //      { key: "lowStockThreshold", value: "5" }
+  //      { key: "proformaNumberPrefix", value: "PF" }
+}
+
+// ---------------------------------------------------------------------------
+// Proformas
+// ---------------------------------------------------------------------------
+
+enum ProformaStatus {
+  DRAFT
+  REVIEW
+  FINALIZED
+  CANCELLED
+}
+
+model Proforma {
+  id         String         @id @default(cuid())
+  number     String?        @unique // assigned only on finalize, e.g. PF-2026-000123
+  status     ProformaStatus @default(DRAFT)
+  customerId String
+  customer   Customer       @relation(fields: [customerId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("ProformaCreatedBy", fields: [createdById], references: [id])
+
+  subtotal      Float @default(0) // sum of item totals + cuttingCharge
+  cuttingCharge Float @default(0) // flat cutting/fabrication fee, entered before finalize, added before VAT
+  vatRate       Float @default(0.15)
+  vatAmount     Float @default(0)
+  grandTotal    Float @default(0)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  finalizedAt DateTime?
+
+  items ProformaItem[]
+
+  @@index([status])
+}
+
+// One row the user adds in the proforma table (their "Thread & Riser 4.05 x 0.34").
+model ProformaItem {
+  id         String   @id @default(cuid())
+  proformaId String
+  proforma   Proforma @relation(fields: [proformaId], references: [id], onDelete: Cascade)
+
+  materialId    String
+  material      Material @relation(fields: [materialId], references: [id])
+  productTypeId String?
+  itemLabel     String // display name captured at time of entry
+
+  customerLengthCm Float // for PIECE mode: the set/piece length. For AREA_TOTAL: the selected stock tile's length (reference only).
+  customerWidthCm  Float // for PIECE mode: the set/piece width. For AREA_TOTAL: the selected stock tile's width (reference only).
+  thickness        Float
+  unit             String @default("pcs")
+  quantity         Int    // PIECE: pieces ordered. AREA_TOTAL: pieces needed, computed from requestedAreaM2. AREA_PER_PIECE: pieces ordered.
+
+   // How this row is priced — see backend/src/services/proformaCalculator.ts:
+  //   PIECE          — fixed price per piece (e.g. Thread & Riser sets). Area is not used in pricing.
+  //   AREA_PER_PIECE — legacy/default: price x (length x width) x quantity (e.g. Window Sill, Doorsill, Kitchen Top, Landing).
+  //   AREA_TOTAL     — customer states a total area needed (e.g. ceramic tiles); price x requestedAreaM2 directly,
+  //                    quantity (pieces) is derived from requestedAreaM2 / (tile length x width).
+  pricingMode     String @default("AREA_PER_PIECE")
+  requestedAreaM2 Float? // only set for AREA_TOTAL rows
+
+  pricePerM2     Float // the fixed price used for this line (per m2, or per piece for PIECE mode) — either typed in
+                        // by the user when adding the item, or looked up from the
+                        // material's configured Price if left blank
+  billableAreaM2 Float // customerLengthCm/100 * customerWidthCm/100 (or requestedAreaM2 for AREA_TOTAL)
+  unitPrice      Float // pricePerM2 (PIECE, AREA_TOTAL) or billableAreaM2 * pricePerM2 (AREA_PER_PIECE)
+  totalPrice     Float // PIECE: unitPrice * quantity. AREA_TOTAL: unitPrice * requestedAreaM2. AREA_PER_PIECE: unitPrice * quantity.
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockAllocations ProformaStockAllocation[]
+}
+
+// The stock-optimizer's answer for one item: which stock sizes/pieces cover it.
+// This is the single canonical "StockCombination" — see rule #43.
+model ProformaStockAllocation {
+  id             String       @id @default(cuid())
+  proformaItemId String
+  proformaItem   ProformaItem @relation(fields: [proformaItemId], references: [id], onDelete: Cascade)
+  stockSizeId    String
+  stockSize      StockSize    @relation(fields: [stockSizeId], references: [id])
+
+  piecesNeeded    Int
+  usedLengthCm    Float
+  wasteLengthCm   Float
+  totalStockArea  Float
+  totalWasteArea  Float
+
+  // Explainability (spec: optimizer output must explain what was used and why).
+  mode                    String @default("CUT") // "CUT" | "ASSEMBLE"
+  customerPiecesProduced  Int    @default(0)
+}
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // e.g. "PROFORMA_FINALIZED", "STOCK_ADJUSTED"
+  entityType String
+  entityId   String
+  oldValue   String?
+  newValue   String?
+  createdAt  DateTime @default(now())
+}
