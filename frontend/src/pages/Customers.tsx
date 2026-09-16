@@ -9,6 +9,7 @@ export default function Customers() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
 
   function load() {
@@ -21,10 +22,11 @@ export default function Customers() {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await api.post("/customers", { name, phone, email });
+      await api.post("/customers", { name, phone, email, address });
       setName("");
       setPhone("");
       setEmail("");
+      setAddress("");
       load();
     } finally {
       setBusy(false);
@@ -36,10 +38,11 @@ export default function Customers() {
       <h1 className="mb-1 text-xl font-semibold text-quarry-900">Customers</h1>
       <p className="mb-6 text-sm text-quarry-500">Everyone you've quoted or sold to.</p>
 
-      <div className="mb-6 grid gap-3 rounded-lg border border-quarry-200 bg-white p-4 md:grid-cols-4">
+      <div className="mb-6 grid gap-3 rounded-lg border border-quarry-200 bg-white p-4 md:grid-cols-5">
         <Input label="Name" value={name} onChange={setName} placeholder="Customer name" />
         <Input label="Phone" value={phone} onChange={setPhone} placeholder="09…" />
         <Input label="Email" value={email} onChange={setEmail} placeholder="optional" />
+        <Input label="Address" value={address} onChange={setAddress} placeholder="optional — shown on the PDF" />
         <div className="flex items-end">
           <button
             onClick={addCustomer}
@@ -59,12 +62,13 @@ export default function Customers() {
               <th className="px-4 py-2 font-medium">Name</th>
               <th className="px-4 py-2 font-medium">Phone</th>
               <th className="px-4 py-2 font-medium">Email</th>
+              <th className="px-4 py-2 font-medium">Address</th>
             </tr>
           </thead>
           <tbody>
             {customers.length === 0 && (
               <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-quarry-400">
+                <td colSpan={4} className="px-4 py-6 text-center text-quarry-400">
                   No customers yet.
                 </td>
               </tr>
@@ -74,6 +78,7 @@ export default function Customers() {
                 <td className="px-4 py-2 font-medium text-quarry-900">{c.name}</td>
                 <td className="px-4 py-2 text-quarry-600">{c.phone || "—"}</td>
                 <td className="px-4 py-2 text-quarry-600">{c.email || "—"}</td>
+                <td className="px-4 py-2 text-quarry-600">{c.address || "—"}</td>
               </tr>
             ))}
           </tbody>

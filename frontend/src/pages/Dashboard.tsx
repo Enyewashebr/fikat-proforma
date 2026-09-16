@@ -105,52 +105,134 @@ export default function Dashboard() {
       setStockModal(null);
     }
   }
+function updateStockQuantityLocally(
+  stockSizeId: string,
+  quantityDelta: number
+) {
+  setMaterials((currentMaterials) =>
+    currentMaterials.map((material) => {
+      if (material.category === "GRANITE") {
+        return {
+          ...material,
+          productTypes: material.productTypes.map((productType) => ({
+            ...productType,
+            stockSizes: productType.stockSizes.map((size) =>
+              size.id === stockSizeId
+                ? {
+                    ...size,
+                    quantityAvailable:
+                      size.quantityAvailable + quantityDelta,
+                    status: getStockStatus(
+                      size.quantityAvailable + quantityDelta,
+                      size.lowStockThreshold
+                    ),
+                  }
+                : size
+            ),
+          })),
+        };
+      }
 
+      return {
+        ...material,
+        stockSizes: material.stockSizes.map((size) =>
+          size.id === stockSizeId
+            ? {
+                ...size,
+                quantityAvailable:
+                  size.quantityAvailable + quantityDelta,
+                status: getStockStatus(
+                  size.quantityAvailable + quantityDelta,
+                  size.lowStockThreshold
+                ),
+              }
+            : size
+        ),
+      };
+    })
+  );
+}
   async function handleStockChange(
-    stockSizeId: string,
-    quantity: number,
-    action: StockAction,
-    reason: string
-  ) {
-    if (quantity === 0 || !Number.isFinite(quantity)) {
-      return;
-    }
-
-    let quantityDelta: number;
-
-    if (action === "IN") {
-      quantityDelta = Math.abs(quantity);
-    } else if (action === "OUT") {
-      quantityDelta = -Math.abs(quantity);
-    } else {
-      // Adjust keeps the sign entered by the user.
-      quantityDelta = quantity;
-    }
-
-    try {
-      setSaving(true);
-
-      await api.post(`/stock/${stockSizeId}/adjust`, {
-        quantityDelta,
-        type: "ADJUSTMENT",
-        reason,
-      });
-
-      setStockModal(null);
-      await loadDashboard();
-    } catch (error) {
-      console.error("Failed to update stock:", error);
-
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to update stock.";
-
-      window.alert(message);
-    } finally {
-      setSaving(false);
-    }
+  stockSizeId: string,
+  quantity: number,
+  action: StockAction,
+  reason: string
+) {
+  if (quantity === 0 || !Number.isFinite(quantity)) {
+    return;
   }
+
+  let quantityDelta: number;
+
+  if (action === "IN") {
+    quantityDelta = Math.abs(quantity);
+  } else if (action === "OUT") {
+    quantityDelta = -Math.abs(quantity);
+  } else {
+    quantityDelta = quantity;
+  }
+
+  try {
+    setSaving(true);
+
+    await api.post(`/stock/${stockSizeId}/adjust`, {
+      quantityDelta,
+      type: "ADJUSTMENT",
+      reason,
+    });
+
+    // Update only the affected row.
+    updateStockQuantityLocally(stockSizeId, quantityDelta);
+
+    // Update summary numbers without reloading the entire dashboard.
+    setSummary((currentSummary) => {
+      if (!currentSummary) {
+        return currentSummary;
+      }
+
+      const previousQuantity = materials
+        .flatMap((material) =>
+          material.category === "GRANITE"
+            ? material.productTypes.flatMap(
+                (productType) => productType.stockSizes
+              )
+            : material.stockSizes
+        )
+        .find((stock) => stock.id === stockSizeId)?.quantityAvailable;
+
+      if (previousQuantity === undefined) {
+        return currentSummary;
+      }
+
+      const nextQuantity = previousQuantity + quantityDelta;
+
+      const wasOutOfStock = previousQuantity <= 0;
+      const isOutOfStock = nextQuantity <= 0;
+
+      return {
+        ...currentSummary,
+        totalPieces: currentSummary.totalPieces + quantityDelta,
+        outOfStock:
+          currentSummary.outOfStock +
+          (isOutOfStock ? 1 : 0) -
+          (wasOutOfStock ? 1 : 0),
+      };
+    });
+
+    setStockModal(null);
+  } catch (error) {
+    console.error("Failed to update stock:", error);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to update stock.";
+
+    window.alert(message);
+  } finally {
+    setSaving(false);
+  }
+}
 
   const filteredMaterials = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -1045,4 +1127,20 @@ function getMaterialOutOfStockCount(
   return material.stockSizes.filter(
     (size) => size.status === "OUT_OF_STOCK"
   ).length;
+}
+
+
+function getStockStatus(
+  quantityAvailable: number,
+  lowStockThreshold: number
+): StockSize["status"] {
+  if (quantityAvailable <= 0) {
+    return "OUT_OF_STOCK";
+  }
+
+  if (quantityAvailable <= lowStockThreshold) {
+    return "LOW_STOCK";
+  }
+
+  return "IN_STOCK";
 }

@@ -48,6 +48,9 @@ const stockSizeSchema = z.object({
   // Riser piece dimensions for a Thread & Riser set — see schema comment on StockSize.
   secondaryWidthCm: z.number().positive().nullable().optional(),
   secondaryThickness: z.number().positive().nullable().optional(),
+  // Per-piece/per-set price for PIECE-priced applications (Thread & Riser).
+  // AREA-priced applications leave this unset and use the material's Price instead.
+  pricePerUnit: z.number().positive().nullable().optional(),
   unit: z.string().default("pcs"),
   quantityAvailable: z.number().int().min(0).default(0),
   lowStockThreshold: z.number().int().min(0).default(5),

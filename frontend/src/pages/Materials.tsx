@@ -142,6 +142,9 @@ function AddMaterialModal({
     if (isThreadRiser && (!riserWidth || !riserThickness)) {
       return setError("Thread & Riser is sold as a set — enter the riser width and thickness too.");
     }
+    if (isThreadRiser && !pricePerM2) {
+      return setError("Thread & Riser is priced per size — enter this length's price before saving.");
+    }
 
     setBusy(true);
     try {
@@ -167,7 +170,11 @@ function AddMaterialModal({
         }
       }
 
-      // 3. Create the stock size itself.
+      // 3. Create the stock size itself. Thread & Riser stores its price
+      // directly on the size (pricePerUnit) — every length has its own
+      // price, and the proforma looks it up (and sums it across an
+      // assembled combination) automatically, never asking for it again.
+      // Every other application still uses the material-level Price table.
       await api.post(`/materials/${materialId}/stock-sizes`, {
         productTypeId,
         lengthCm: Number(length),
@@ -175,11 +182,12 @@ function AddMaterialModal({
         thickness: Number(thickness),
         secondaryWidthCm: isThreadRiser ? Number(riserWidth) : undefined,
         secondaryThickness: isThreadRiser ? Number(riserThickness) : undefined,
+        pricePerUnit: isThreadRiser ? Number(pricePerM2) : undefined,
         quantityAvailable: quantity,
       });
 
-      // 4. Optional: set/update the price for this material + application.
-      if (pricePerM2) {
+      // 4. Everything else: optionally set/update the material+application price.
+      if (!isThreadRiser && pricePerM2) {
         await api.post("/materials/prices", {
           materialId,
           productTypeId,
@@ -410,7 +418,7 @@ function AddMaterialModal({
             {/* Price */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
-                Price {isThreadRiser ? "per set (optional)" : "per m² (optional)"}
+                {isThreadRiser ? "Price for this set (required)" : "Price per m² (optional)"}
               </label>
               <input
                 type="number"
@@ -418,7 +426,11 @@ function AddMaterialModal({
                 min="0"
                 value={pricePerM2}
                 onChange={(e) => setPricePerM2(e.target.value)}
-                placeholder="Sets/updates the default price for this material + application"
+                placeholder={
+                  isThreadRiser
+                    ? "This exact length's price — used automatically, never re-typed on a proforma"
+                    : "Sets/updates the default price for this material + application"
+                }
                 className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-slate-600"
               />
             </div>
@@ -625,6 +637,9 @@ function SizeRows({ sizes, onAdjust }: { sizes: StockSize[]; onAdjust: (id: stri
         {sizes.map((s) => (
           <tr key={s.id} className="border-b border-quarry-100 last:border-0">
             <td className="py-2 text-quarry-600">{formatSize(s)}</td>
+            <td className="py-2 text-right text-quarry-500">
+              {s.pricePerUnit != null ? `${s.pricePerUnit.toLocaleString()} / set` : ""}
+            </td>
             <td className="py-2 text-right text-quarry-900">{s.quantityAvailable} in stock</td>
             <td className="w-24 py-2">
               <div className="flex items-center justify-end gap-1">

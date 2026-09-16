@@ -18,6 +18,9 @@ export interface StockSize {
   quantityReserved: number;
   lowStockThreshold: number;
   status: StockStatus;
+
+  /** Per-piece/per-set price for PIECE-priced applications (Thread & Riser). Null otherwise. */
+  pricePerUnit?: number | null;
 }
 
 export interface ProductType {

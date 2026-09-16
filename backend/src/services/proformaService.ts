@@ -35,9 +35,56 @@ async function getPricePerM2(materialId: string, productTypeId: string | null): 
   return price.pricePerM2;
 }
 
+/**
+ * PIECE-mode pricing (Thread & Riser) is never typed in manually — it's
+ * fetched from the price stored on each stock size (set when that size was
+ * added under Materials) and summed across whatever combination the
+ * optimizer needs to cover the requested length. This is what makes
+ * "customer needs 5.2m, we have 2.20 + 1.20 + 1.80 in stock" price out as
+ * (price of 220) + (price of 120) + (price of 180), not one flat number.
+ */
+async function computePiecePriceFromStock(
+  materialId: string,
+  productTypeId: string | null,
+  customerLengthCm: number,
+  customerWidthCm: number
+): Promise<number> {
+  const stockSizes = await prisma.stockSize.findMany({ where: { materialId, productTypeId } });
+  if (stockSizes.length === 0) {
+    throw new ApiError(400, "No stock sizes are set up for this material/application yet.");
+  }
+
+  const preview = optimizeStock(
+    { lengthCm: customerLengthCm, widthCm: customerWidthCm, quantity: 1 },
+    stockSizes as StockSizeDTO[]
+  );
+  if (!preview.feasible) {
+    throw new ApiError(
+      400,
+      "Not enough stock available to produce (or price) this size — check the Stock dashboard."
+    );
+  }
+
+  let pricePerPiece = 0;
+  for (const combo of preview.combination) {
+    const stock = stockSizes.find((s) => s.id === combo.stockSizeId);
+    if (!stock || stock.pricePerUnit == null) {
+      throw new ApiError(
+        400,
+        `"${stock ? `${stock.lengthCm}cm` : "One of the required stock sizes"}" has no price set yet — ` +
+          "add one from the Materials page before using it in a proforma."
+      );
+    }
+    pricePerPiece += stock.pricePerUnit * combo.stockPiecesUsed;
+  }
+  return pricePerPiece;
+}
+
 /** Remembers whatever price the user typed so the next row for the same
  * material/application doesn't need it re-entered (spec: "the fixed price is
- * not changed so don't make the user enter it every row"). */
+ * not changed so don't make the user enter it every row"). AREA modes only —
+ * PIECE mode's price always comes from the stock catalog, never remembered
+ * here (see computePiecePriceFromStock). */
 async function rememberPrice(materialId: string, productTypeId: string | null, pricePerM2: number) {
   await prisma.price.updateMany({
     where: { materialId, productTypeId: productTypeId ?? null },
@@ -66,7 +113,9 @@ export async function addProformaItem(params: {
   pricingMode: PricingMode;
   /** Required for AREA_TOTAL — the total square meters the customer needs. */
   requestedAreaM2?: number;
-  /** If provided, used directly instead of the material's configured Price, and remembered for next time. */
+  /** AREA modes only — if provided, used directly instead of the material's
+   * configured Price, and remembered for next time. Ignored for PIECE mode,
+   * which always prices from the stock catalog. */
   pricePerM2?: number;
 }) {
   const proforma = await prisma.proforma.findUnique({ where: { id: params.proformaId } });
@@ -75,32 +124,41 @@ export async function addProformaItem(params: {
     throw new ApiError(400, "This proforma is already finalized or cancelled and can't be edited.");
   }
 
-  const pricePerM2 =
-    params.pricePerM2 !== undefined && params.pricePerM2 !== null
-      ? params.pricePerM2
-      : await getPricePerM2(params.materialId, params.productTypeId);
-
-  // Whatever price is used for this row becomes the new remembered default
-  // for this material/application, whether the user typed it or it came
-  // from the last remembered value — keeps every row consistent.
-  if (params.pricePerM2 !== undefined && params.pricePerM2 !== null) {
-    await rememberPrice(params.materialId, params.productTypeId, params.pricePerM2);
-  }
-
   let calc: { billableAreaM2: number; unitPrice: number; totalPrice: number };
   let quantity: number;
+  let pricePerM2: number; // reused as "price per piece" for PIECE mode — see schema comment on ProformaItem
 
   if (params.pricingMode === "PIECE") {
     if (!params.quantity || params.quantity < 1) throw new ApiError(400, "Enter a quantity (pieces).");
     quantity = params.quantity;
+    pricePerM2 = await computePiecePriceFromStock(
+      params.materialId,
+      params.productTypeId,
+      params.customerLengthCm,
+      params.customerWidthCm
+    );
     calc = calculatePieceItem(pricePerM2, quantity);
   } else if (params.pricingMode === "AREA_TOTAL") {
+    pricePerM2 =
+      params.pricePerM2 !== undefined && params.pricePerM2 !== null
+        ? params.pricePerM2
+        : await getPricePerM2(params.materialId, params.productTypeId);
+    if (params.pricePerM2 !== undefined && params.pricePerM2 !== null) {
+      await rememberPrice(params.materialId, params.productTypeId, params.pricePerM2);
+    }
     if (!params.requestedAreaM2 || params.requestedAreaM2 <= 0) {
       throw new ApiError(400, "Enter the total area needed (m²).");
     }
     quantity = piecesNeededForArea(params.requestedAreaM2, params.customerLengthCm, params.customerWidthCm);
     calc = calculateAreaTotalItem(params.requestedAreaM2, pricePerM2);
   } else {
+    pricePerM2 =
+      params.pricePerM2 !== undefined && params.pricePerM2 !== null
+        ? params.pricePerM2
+        : await getPricePerM2(params.materialId, params.productTypeId);
+    if (params.pricePerM2 !== undefined && params.pricePerM2 !== null) {
+      await rememberPrice(params.materialId, params.productTypeId, params.pricePerM2);
+    }
     if (!params.quantity || params.quantity < 1) throw new ApiError(400, "Enter a quantity (pieces).");
     quantity = params.quantity;
     calc = calculateAreaPerPieceItem(params.customerLengthCm, params.customerWidthCm, quantity, pricePerM2);
@@ -157,9 +215,14 @@ async function recalculateTotals(proformaId: string) {
   const items = await prisma.proformaItem.findMany({ where: { proformaId } });
   const vatRate = await getVatRate();
   const totals = calculateProformaTotals(items, proforma.cuttingCharge, vatRate);
+  // Include items/customer here — every caller (addItem, removeItem, the
+  // cutting-charge endpoint) hands this straight back to the frontend, and a
+  // response missing `items` was wiping the on-screen table (bug: rows and
+  // the Finalize button disappearing after setting a cutting charge).
   return prisma.proforma.update({
     where: { id: proformaId },
     data: { ...totals, vatRate },
+    include: { items: true, customer: true },
   });
 }
 
@@ -185,8 +248,7 @@ export async function previewStockCombination(itemId: string) {
  * transaction so a partial finalize can never happen (spec rule #33/#35).
  */
 export async function finalizeProforma(proformaId: string, userId: string) {
-  return prisma.$transaction(
-    async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const proforma = await tx.proforma.findUnique({
       where: { id: proformaId },
       include: { items: true },
@@ -272,13 +334,7 @@ export async function finalizeProforma(proformaId: string, userId: string) {
     });
 
     return finalized;
-      return finalized;
-    },
-    {
-      timeout: 15000,
-      maxWait: 10000,
-    }
-  );
+  });
 }
 
 /**

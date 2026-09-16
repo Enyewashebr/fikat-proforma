@@ -27,8 +27,7 @@ export default function NewProforma() {
   const [productTypeId, setProductTypeId] = useState("");
   const [length, setLength] = useState("");
   const [width, setWidth] = useState("");
-  // const [thickness, setThickness] = useState("0.03");
-  const [thickness] = useState("0.03");
+  const [thickness, setThickness] = useState("0.03");
   const [quantity, setQuantity] = useState("1");
   const [pricePerM2, setPricePerM2] = useState("");
   const [priceWasAutoFilled, setPriceWasAutoFilled] = useState(false);
@@ -427,25 +426,35 @@ export default function NewProforma() {
               </>
             )}
 
-            <input
-              value={pricePerM2}
-              onChange={(e) => {
-                setPricePerM2(e.target.value);
-                setPriceWasAutoFilled(false);
-              }}
-              placeholder={pricingMode === "PIECE" ? "Price / piece" : "Price / m²"}
-              type="number"
-              step="0.01"
-              title={
-                priceWasAutoFilled
-                  ? "Filled in from the last price used for this material/application — edit to change it"
-                  : "Leave blank to use the material's configured price"
-              }
-              className={`rounded-md border px-3 py-2 text-sm md:col-span-2 ${
-                priceWasAutoFilled ? "border-moss-300 bg-moss-50" : "border-quarry-300"
-              }`}
-            />
+            {pricingMode !== "PIECE" && (
+              <input
+                value={pricePerM2}
+                onChange={(e) => {
+                  setPricePerM2(e.target.value);
+                  setPriceWasAutoFilled(false);
+                }}
+                placeholder="Price / m²"
+                type="number"
+                step="0.01"
+                title={
+                  priceWasAutoFilled
+                    ? "Filled in from the last price used for this material/application — edit to change it"
+                    : "Leave blank to use the material's configured price"
+                }
+                className={`rounded-md border px-3 py-2 text-sm md:col-span-2 ${
+                  priceWasAutoFilled ? "border-moss-300 bg-moss-50" : "border-quarry-300"
+                }`}
+              />
+            )}
           </div>
+
+          {pricingMode === "PIECE" && (
+            <div className="mt-2 text-xs text-quarry-500">
+              Price is fetched automatically from the stock size(s) needed for this length — see "Stock plan" on the
+              row after adding it. If the exact length isn't in stock, the next size up is used and priced at its own
+              rate; if the length has to be assembled from several pieces, their prices are added together.
+            </div>
+          )}
 
           {showKitchenTopWarning && (
             <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -456,7 +465,7 @@ export default function NewProforma() {
             </div>
           )}
 
-          {priceWasAutoFilled && (
+          {priceWasAutoFilled && pricingMode !== "PIECE" && (
             <div className="mt-2 text-xs text-quarry-500">
               Using the price already set for this material/application — change it above if this order is different.
             </div>

@@ -126,6 +126,14 @@ model StockSize {
   secondaryThickness Float?
 
   quantityAvailable Int @default(0)
+
+  // Per-piece/per-set price for PIECE-priced applications (currently just
+  // Thread & Riser — see ProformaItem.pricingMode). Null for AREA-priced
+  // applications, which use the material-level Price table instead. This
+  // lets each length (120cm, 140cm, 220cm...) carry its own price, so an
+  // assembled length (e.g. 220+120+180 to cover 5.2m) is priced as the sum
+  // of the exact pieces used, not one flat price for the whole item.
+  pricePerUnit Float?
   quantityReserved  Int @default(0) // reserved by DRAFT/REVIEW proformas, not yet deducted
 
   lowStockThreshold Int @default(5)
@@ -245,11 +253,13 @@ model ProformaItem {
   unit             String @default("pcs")
   quantity         Int    // PIECE: pieces ordered. AREA_TOTAL: pieces needed, computed from requestedAreaM2. AREA_PER_PIECE: pieces ordered.
 
-   // How this row is priced — see backend/src/services/proformaCalculator.ts:
-  //   PIECE          — fixed price per piece (e.g. Thread & Riser sets). Area is not used in pricing.
-  //   AREA_PER_PIECE — legacy/default: price x (length x width) x quantity (e.g. Window Sill, Doorsill, Kitchen Top, Landing).
-  //   AREA_TOTAL     — customer states a total area needed (e.g. ceramic tiles); price x requestedAreaM2 directly,
-  //                    quantity (pieces) is derived from requestedAreaM2 / (tile length x width).
+  /**
+   * How this row is priced — see backend/src/services/proformaCalculator.ts:
+   *   PIECE          — fixed price per piece (e.g. Thread & Riser sets). Area is not used in pricing.
+   *   AREA_PER_PIECE — legacy/default: price x (length x width) x quantity (e.g. Window Sill, Doorsill, Kitchen Top, Landing).
+   *   AREA_TOTAL     — customer states a total area needed (e.g. ceramic tiles); price x requestedAreaM2 directly,
+   *                    quantity (pieces) is derived from requestedAreaM2 / (tile length x width).
+   */
   pricingMode     String @default("AREA_PER_PIECE")
   requestedAreaM2 Float? // only set for AREA_TOTAL rows
 

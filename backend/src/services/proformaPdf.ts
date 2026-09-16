@@ -16,8 +16,6 @@ const COMPANY_NAME_AMHARIC = "ፍካት ፊኒሽንግ ማቴሪያልስ አ�
 const COMPANY_NAME_ENGLISH = "FIKAT FINISHING MATERIAL SUPPLIER PLC";
 const COMPANY_PHONES = "Tel: 0911860605, 0911524938, 0911518961";
 
-
-
 // pdfkit's built-in PDF standard fonts (Helvetica etc.) only cover Latin/
 // WinAnsi text — they cannot render Amharic/Ge'ez glyphs. To print the
 // Amharic company name, drop a Unicode font that includes Ethiopic coverage
@@ -26,9 +24,9 @@ const COMPANY_PHONES = "Tel: 0911860605, 0911524938, 0911518961";
 // If it's not present, the PDF still generates correctly — it just skips
 // the Amharic line and prints the English name only, rather than crashing
 // or printing broken glyphs.
-
-const ETHIOPIC_FONT_PATH = path.join(__dirname, "..", "..", "assets", "fonts", "NotoSerifEthiopic-Regular.ttf");
+const ETHIOPIC_FONT_PATH = path.join(__dirname, "..", "..", "assets", "fonts", "NotoSansEthiopic-Regular.ttf");
 const hasEthiopicFont = fs.existsSync(ETHIOPIC_FONT_PATH);
+
 /**
  * Streams a printable proforma PDF straight to the HTTP response. Deliberately
  * simple/dependency-light (pdfkit, no headless browser) so it runs anywhere
@@ -94,26 +92,27 @@ export function streamProformaPdf(proforma: ProformaWithRelations, res: Response
     billY += 14;
   }
 
-  // --- Item table (includes material code, e.g. "GR-G640", "GR-603") ---
+  // --- Item table (shows the material's readable name, e.g. "603", "Galaxy",
+  // "GLM Polished White" — not just its internal code) ---
   const tableTop = Math.max(230, billY + 15);
   const cols = {
     item: 50,
-    code: 195,
-    dims: 245,
-    unit: 320,
-    qty: 355,
-    unitPrice: 400,
-    total: 475,
+    material: 163,
+    dims: 246,
+    unit: 314,
+    qty: 344,
+    unitPrice: 378,
+    total: 462,
   };
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor("#000");
-  doc.text("Item", cols.item, tableTop, { width: 140 });
-  doc.text("Code", cols.code, tableTop, { width: 45 });
-  doc.text("L x W (m)", cols.dims, tableTop, { width: 70 });
-  doc.text("Unit", cols.unit, tableTop, { width: 30 });
-  doc.text("Qty", cols.qty, tableTop, { width: 40 });
-  doc.text("Unit price", cols.unitPrice, tableTop, { width: 70, align: "right" });
-  doc.text("Total", cols.total, tableTop, { width: 70, align: "right" });
+  doc.text("Item", cols.item, tableTop, { width: 110 });
+  doc.text("Material", cols.material, tableTop, { width: 80 });
+  doc.text("L x W (m)", cols.dims, tableTop, { width: 65 });
+  doc.text("Unit", cols.unit, tableTop, { width: 28 });
+  doc.text("Qty", cols.qty, tableTop, { width: 32 });
+  doc.text("Unit price", cols.unitPrice, tableTop, { width: 80, align: "right" });
+  doc.text("Total", cols.total, tableTop, { width: 83, align: "right" });
   doc.moveTo(50, tableTop + 13).lineTo(545, tableTop + 13).strokeColor("#ccc").stroke();
 
   let y = tableTop + 20;
@@ -129,13 +128,13 @@ export function streamProformaPdf(proforma: ProformaWithRelations, res: Response
         ? `${item.requestedAreaM2?.toFixed(2)} m² total`
         : `${(item.customerLengthCm / 100).toFixed(2)} x ${(item.customerWidthCm / 100).toFixed(2)}`;
 
-    doc.text(item.itemLabel, cols.item, y, { width: 140 });
-    doc.text(item.material.code || "—", cols.code, y, { width: 45 });
-    doc.text(dims, cols.dims, y, { width: 70 });
-    doc.text(item.pricingMode === "PIECE" ? "pc" : item.unit, cols.unit, y, { width: 30 });
-    doc.text(String(item.quantity), cols.qty, y, { width: 40 });
-    doc.text(money(item.unitPrice), cols.unitPrice, y, { width: 70, align: "right" });
-    doc.text(money(item.totalPrice), cols.total, y, { width: 70, align: "right" });
+    doc.text(item.itemLabel, cols.item, y, { width: 110 });
+    doc.text(item.material.name, cols.material, y, { width: 80 });
+    doc.text(dims, cols.dims, y, { width: 65 });
+    doc.text(item.pricingMode === "PIECE" ? "pc" : item.unit, cols.unit, y, { width: 28 });
+    doc.text(String(item.quantity), cols.qty, y, { width: 32 });
+    doc.text(money(item.unitPrice), cols.unitPrice, y, { width: 80, align: "right" });
+    doc.text(money(item.totalPrice), cols.total, y, { width: 83, align: "right" });
     y += 18;
   }
 

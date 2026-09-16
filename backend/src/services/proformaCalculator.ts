@@ -78,7 +78,10 @@ export function calculateProformaTotals(
 ): { subtotal: number; vatAmount: number; grandTotal: number } {
   const itemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
   const subtotal = round2(itemsSubtotal + cuttingCharge);
-  const vatAmount = round2(subtotal * vatRate);
+  // VAT applies to the goods (items) only — the cutting/fabrication charge
+  // is not subject to VAT, so it's deliberately excluded here even though
+  // it's included in the displayed "Subtotal" above.
+  const vatAmount = round2(itemsSubtotal * vatRate);
   const grandTotal = round2(subtotal + vatAmount);
   return { subtotal, vatAmount, grandTotal };
 }
