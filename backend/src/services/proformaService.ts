@@ -185,7 +185,8 @@ export async function previewStockCombination(itemId: string) {
  * transaction so a partial finalize can never happen (spec rule #33/#35).
  */
 export async function finalizeProforma(proformaId: string, userId: string) {
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(
+    async (tx) => {
     const proforma = await tx.proforma.findUnique({
       where: { id: proformaId },
       include: { items: true },
@@ -271,7 +272,13 @@ export async function finalizeProforma(proformaId: string, userId: string) {
     });
 
     return finalized;
-  });
+      return finalized;
+    },
+    {
+      timeout: 15000,
+      maxWait: 10000,
+    }
+  );
 }
 
 /**
