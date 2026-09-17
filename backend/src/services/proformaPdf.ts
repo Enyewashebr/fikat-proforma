@@ -92,12 +92,46 @@ export function streamProformaPdf(proforma: ProformaWithRelations, res: Response
     billY += 14;
   }
 
+  // Material type / code BELOW customer information
+const materialTypes = [
+  ...new Set(
+    proforma.items.map((item) => {
+      const material = item.material as any;
+
+      return (
+        material.materialType ??
+        material.type ??
+        material.code ??
+        material.name
+      );
+    })
+  ),
+].filter(Boolean);
+
+if (materialTypes.length > 0) {
+  billY += 4;
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .fillColor("#000")
+    .text("Material Type:", 50, billY);
+
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor("#333")
+    .text(materialTypes.join(", "), 125, billY);
+
+  billY += 14;
+}
+
   // --- Item table (shows the material's readable name, e.g. "603", "Galaxy",
   // "GLM Polished White" — not just its internal code) ---
   const tableTop = Math.max(230, billY + 15);
   const cols = {
     item: 50,
-    material: 163,
+    // material: 163,
     dims: 246,
     unit: 314,
     qty: 344,
@@ -107,7 +141,7 @@ export function streamProformaPdf(proforma: ProformaWithRelations, res: Response
 
   doc.font("Helvetica-Bold").fontSize(8).fillColor("#000");
   doc.text("Item", cols.item, tableTop, { width: 110 });
-  doc.text("Material", cols.material, tableTop, { width: 80 });
+  // doc.text("Material", cols.material, tableTop, { width: 80 });
   doc.text("L x W (m)", cols.dims, tableTop, { width: 65 });
   doc.text("Unit", cols.unit, tableTop, { width: 28 });
   doc.text("Qty", cols.qty, tableTop, { width: 32 });
@@ -129,7 +163,7 @@ export function streamProformaPdf(proforma: ProformaWithRelations, res: Response
         : `${(item.customerLengthCm / 100).toFixed(2)} x ${(item.customerWidthCm / 100).toFixed(2)}`;
 
     doc.text(item.itemLabel, cols.item, y, { width: 110 });
-    doc.text(item.material.name, cols.material, y, { width: 80 });
+    //  doc.text(item.material.name, cols.material, y, { width: 80 });
     doc.text(dims, cols.dims, y, { width: 65 });
     doc.text(item.pricingMode === "PIECE" ? "pc" : item.unit, cols.unit, y, { width: 28 });
     doc.text(String(item.quantity), cols.qty, y, { width: 32 });

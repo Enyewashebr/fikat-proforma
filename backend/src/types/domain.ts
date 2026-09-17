@@ -20,6 +20,8 @@ export interface StockSizeDTO {
   quantityAvailable: number;
   quantityReserved: number;
   lowStockThreshold: number;
+  /** Per-piece/per-set price for PIECE-priced applications (Thread & Riser). Null otherwise. */
+  pricePerUnit?: number | null;
 }
 
 /** One requirement the optimizer needs to satisfy for a single proforma row. */
